@@ -88,7 +88,17 @@ every time. Skip it if you don't care about images; nothing else depends on it.
 
 </details>
 
-## Why the custom file exists
+## Smoke test: verify it works on your machine
+
+- Codex → Claude: in a Codex chat, say "Ask Claude to review any file in this repo."
+  You should get Claude's review relayed back without touching Claude yourself.
+- Claude → Codex: in a Claude chat, say "Have Codex generate a 512×512 blue circle PNG
+  into this folder." The image should appear **directly in the project folder**.
+
+## The fine print (click any line to expand)
+
+<details>
+<summary><b>Why a custom file instead of <code>claude mcp serve</code></b></summary>
 
 The obvious approach, `codex mcp add claude -- claude mcp serve`, **is not what you want.**
 `claude mcp serve` hands out Claude's *raw tools* (Read, Bash, Agent). There is no
@@ -99,9 +109,13 @@ permission can stall waiting for an approval no one is there to give.
 (Claude's headless mode). `claude -p` answers a question and exits. It never prompts.
 That single change is the whole fix.
 
-## The critical config line (do not skip this)
+</details>
 
-(Not a secret or an API key, just one line of config that everything depends on.)
+<details>
+<summary><b>The critical config line (the installer adds it for you; read this if you install by hand)</b></summary>
+
+(Not a secret or an API key, just one line of config that everything depends on.
+The installer adds it for you.)
 
 Headless `codex exec` auto-denies MCP tool calls (`user cancelled MCP tool call`) unless you
 set a **per-tool** approval mode. The *global* approval settings (`approval_policy=never`,
@@ -127,7 +141,10 @@ Auto-approving a tool that edits files means anything Codex reads (a web page, a
 could silently trigger edits to your code. Only add an `approval_mode` line for it if you
 fully accept that risk.
 
-## Security properties
+</details>
+
+<details>
+<summary><b>Security: what is locked down</b></summary>
 
 - Claude runs in the MCP server's startup working directory (normally the Codex workspace).
   Tool callers cannot change that directory. (Claude's own file-permission rules are what
@@ -145,7 +162,10 @@ fully accept that risk.
   4 Claude calls run at once.
 - Prompts pass via stdin, not command-line arguments, so they don't show up in process lists.
 
-## Known limits
+</details>
+
+<details>
+<summary><b>Known limits</b></summary>
 
 - **Codex edits files on its own** when given `--sandbox workspace-write`. Work on a branch.
 - **Codex → Claude calls are one-shot and blocking.** Every `ask_claude` or `ask_claude_write`
@@ -175,32 +195,42 @@ fully accept that risk.
   the text model only drives the tool. Lower effort saves *its* cost, not the image cost,
   and the image is not guaranteed identical.
 
-## Smoke test: verify it works on your machine
+</details>
 
-- Codex → Claude: in a Codex chat, say "Ask Claude to review any file in this repo."
-  You should get Claude's review relayed back without touching Claude yourself.
-- Claude → Codex: in a Claude chat, say "Have Codex generate a 512×512 blue circle PNG
-  into this folder." The image should appear **directly in the project folder**.
+## FAQ (click a question for the answer)
 
-## FAQ
+<details>
+<summary><b>Claude tells me to run <code>/doctor</code>, or to run <code>claude install</code>. What do I do?</b></summary>
 
-**Claude tells me to run `/doctor`, or to run `claude install`.**
 Claude Code is phasing out npm installs. Run `claude install` once to switch to the native
 version. Frenemy works with either kind on Mac/Linux; Windows requires the native one.
 
-**The image script fails on `--ephemeral`, or Codex tool calls act odd.**
+</details>
+
+<details>
+<summary><b>The image script fails on <code>--ephemeral</code>, or Codex tool calls act odd. Why?</b></summary>
+
 Your Codex CLI is too old. Frenemy is tested with Codex 0.144 and newer. Check with
 `codex --version`, update with `npm install -g @openai/codex@latest` (or `brew upgrade codex`),
 then restart Codex.
 
-**`npm install -g` fails with EACCES / permission denied.**
+</details>
+
+<details>
+<summary><b><code>npm install -g</code> fails with permission denied (EACCES). What now?</b></summary>
+
 On many machines npm's global folder is owned by root. Re-run the same command with `sudo`
 in front (only for packages you trust; npm install scripts run as root). To never need
 sudo again, install Node with a version manager like nvm.
 
-**Image generation (or any `codex exec` run) fails with a "model rejected" error, but
-interactive Codex works fine.**
+</details>
+
+<details>
+<summary><b>Image generation (or any <code>codex exec</code> run) fails with a "model rejected" error, but interactive Codex works fine. Why?</b></summary>
+
 Your `~/.codex/config.toml` pins a `model = "..."` that OpenAI has since retired. Interactive
 Codex picks its model in the UI, so it doesn't notice; `codex exec` obeys the stale pin and
 fails. Fix: delete the `model = ...` line from `~/.codex/config.toml` and restart Codex. With
 no pin, Codex uses its current default model. (The installer warns you if it sees a pin.)
+
+</details>
