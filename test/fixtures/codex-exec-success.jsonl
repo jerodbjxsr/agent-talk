@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"019f9660-8cdd-7d33-a084-f813f279a649"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"hello"}}
+{"type":"turn.completed","usage":{"input_tokens":15989,"cached_input_tokens":10496,"output_tokens":5,"reasoning_output_tokens":0}}

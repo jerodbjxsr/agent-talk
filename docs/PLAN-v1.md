@@ -176,17 +176,27 @@ Results of every series are recorded in the PR bodies.
 
 ## PR sequence (review #11 — each PR independently shippable)
 
-1. **PR 1 — compatibility refactor.** Registry structure, host-awareness, process-
-   group kills, parser fixtures for claude+codex, managed-marker installer with
-   migration fixtures. **Filename and existing mounts keep working** (old name kept
-   as a thin wrapper until PR 4 removes it). Codex↔Claude behavior identical;
-   upstream smoke tests pass before/after.
-2. **PR 2 — mesh core.** `--host` mounts for all four CLIs (host role only for
-   gemini/opencode), codex-as-callee with V1-verified mesh disable, recursion
-   containment, auth scrubbing, `--bare` preflight. A-series for the enabled
-   directions in the PR body.
-3. **PR 3 — gemini callee**, gated on H1: adapter + docs + evidence in one PR.
-4. **PR 4 — opencode callee**, gated on H2, same shape; removes the compat wrapper;
+1. **PR 1 — compatibility refactor** (shipped as PR #2). Registry structure,
+   host-awareness, process-group kills, fixture-tested parsers for claude+codex
+   (fixtures captured from live runs). **Filename and existing mounts keep
+   working** (old name kept as a thin wrapper until the final PR removes it).
+   Codex↔Claude tool surface byte-identical, enforced by a deep-compare test.
+2. **PR 1b — installer.** Split out of PR 1 during review (independently
+   shippable; the wrapper preserves every existing install meanwhile):
+   managed-marker reconcile installer, Node-based atomic config edits,
+   dry-run, legacy-Frenemy migration notes, migration fixtures.
+3. **PR 2 — mesh core.** `--host` mounts for all four CLIs (host role only for
+   gemini/opencode), codex-as-callee with the V1-verified mesh disable,
+   recursion containment, auth scrubbing, `--bare` preflight. A-series for the
+   enabled directions in the PR body.
+   **V1 RESOLVED (2026-07-24, live-tested on codex 0.144.1):**
+   `codex exec -c 'mcp_servers={}'` runs clean and wipes the whole MCP table
+   for that invocation — the strongest mesh-disable. (Note: `-c
+   'mcp_servers.<name>.enabled=false'` errors with "invalid transport" when
+   the named server does not exist in config — do not use the per-server
+   form.)
+4. **PR 3 — gemini callee**, gated on H1: adapter + docs + evidence in one PR.
+5. **PR 4 — opencode callee**, gated on H2, same shape; removes the compat wrapper;
    README rewrite finalized (per-agent security table, quotas, migration guide).
 
 If H1/H2 fail: the corresponding PR becomes the "advisory-labeled" variant **only
