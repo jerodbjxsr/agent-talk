@@ -4,8 +4,16 @@ Diverged fork of [Frenemy](https://github.com/noblehacks) (Zakariya Syed, MIT). 
 scope: bidirectional Claude Code ↔ Codex relay on subscription auth. This fork broadens
 it to a mesh of agentic coding CLIs.
 
-**Status:** shaping. Decisions below are settled; architecture is a sketch pending the
-research pass. Nothing implemented yet.
+**Status:** executing (2026-07-24). PRs #1–#4 merged: docs foundation, relay
+registry refactor (byte-parity, tested), managed-marker installer, mesh core
+(codex callee live-verified both directions, credential scrubbing, --bare
+surfacing). Next up, in order: installer wiring for claude/opencode host mounts
+(V4: verify `claude mcp add` form live) + mesh-aware rewrite of the Claude
+guidance section (the bash fallback must carry the mesh-disable flags);
+H-series hostile-repo fixtures → gemini/opencode callees; README rewrite.
+The live install on this machine awaits Bryan's go — it writes to his curated
+`~/.claude/CLAUDE.md` and `~/.codex/config.toml` (backed up, managed-marker,
+dry-run previewed).
 
 ## Settled decisions (Bryan, 2026-07-24)
 
