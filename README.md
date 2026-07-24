@@ -2,8 +2,9 @@
 
 Let your terminal coding agents call each other, so you never copy/paste between
 them. Ask Claude for a review from inside Codex; have Codex generate an image from
-inside Claude. Everything runs on the **subscription/OAuth logins you already have**
-— no API keys, ever.
+inside Claude. It runs on the **subscription/OAuth logins you already have** — the
+relay strips API-key environment variables so a callee falls back to its own login
+(it does not, and cannot, police every CLI's on-disk credential files).
 
 One tiny, dependency-free file does the work. Read-only by default; file edits live
 in a separate tool that is never auto-approved.
@@ -29,9 +30,9 @@ gets an `ask_<other>` tool for each agent that has passed the safety gate below 
 
 ✅ = usable now. ⏳ = Gemini and OpenCode are **hosts** today (they can call Claude
 and Codex), but are not yet **callees**: no one can call *them* until each passes
-the hostile-repo safety gate on a logged-in machine (see
+the hostile-repo safety probe on a logged-in machine (see
 [Security](#security-what-is-locked-down)). This staging is deliberate — a callee is
-only offered once its read-only enforcement is *proven*, never on a promise.
+only offered once its read-only enforcement has passed that probe, never on a promise.
 
 **Excluded:** Qwen Code (its free login was discontinued; all remaining auth is
 API-key-shaped, and this project is subscription-only). Kimi Code CLI is a future
@@ -81,8 +82,9 @@ and **warns** about them (it never deletes your files); once you've confirmed th
 ## Smoke test
 
 - **Codex → Claude:** in a Codex chat, "Ask Claude to review any file in this repo."
-- **Claude → Codex:** in a Claude chat, "Have Codex generate a 512×512 blue circle PNG
-  into this folder." The image should land directly in the project folder.
+- **Claude → Codex:** in a Claude chat, "Ask Codex what the biggest risk in this file is."
+  (The `ask_codex` tool is read-only. Image generation writes files, so it goes through
+  the separate `genimg.sh` script or the Bash path — see the note on the long-job path below.)
 
 ## Security: what is locked down
 
@@ -94,27 +96,37 @@ agent instead of that agent's raw tools. Per callee:
 | **Claude** | Enforced | `--safe-mode` (all your customizations off) + the side-effect tools removed (`--disallowedTools`: edit, shell, web) + `--strict-mcp-config` (can't see or re-enter the mesh). |
 | **Codex** | Enforced | `--sandbox read-only` (OS-level) + `-c 'mcp_servers={}'` wiping the callee's MCP table for that run. |
 
-Both are **verified against an active attacker**, not just asserted: `test/h-series.test.mjs`
-points each callee at a deliberately hostile repo (malicious project configs plus
-injected `AGENTS.md`/`CLAUDE.md` demanding a file write, a shell command, and a secret
+Both **passed a live hostile-repo probe** (2026-07-24): `test/h-series.test.mjs` points
+each callee at a deliberately hostile repo (malicious project configs plus injected
+`AGENTS.md`/`CLAUDE.md` demanding a file write, a shell command, and a secret
 exfiltration) and confirms none of it happens — even when the repo sits in a trusted
-project path.
+project path. This is regression evidence, not a proof of safety: a passing probe means
+"no side effect observed under this attack," and the probe deliberately hits several
+vectors at once to make a false pass unlikely.
 
-Other guarantees:
+Other properties:
 
 - **Prompts go in via stdin, not argv**, so they never appear in process lists.
-- **Callee env is scrubbed** of API-key-shaped variables (named keys plus anything
-  matching `_API_KEY`/`_API_TOKEN`/`_AUTH_TOKEN`), so a callee can only use its
-  subscription login — never a stray key.
+- **Callee env is scrubbed** of common API-key-shaped variables (named keys plus anything
+  matching `_API_KEY`/`_API_TOKEN`/`_AUTH_TOKEN`) so a callee falls back to its
+  subscription login. This covers environment variables only, not on-disk credentials.
 - **Recursion is contained**: callees are launched with their own mesh access disabled
   (the load-bearing guard), plus a hop-depth counter as defense-in-depth. The Bash
-  fallback path for long jobs carries the same mesh-disable flag.
-- **Write is separate and never auto-approved.** `ask_claude_write` (the file-editing
-  variant) is offered only to hosts that can gate it per-tool (today: Codex, where it
-  triggers an interactive approval). Hosts whose MCP trust is server-wide (Gemini,
-  OpenCode) are never given a write tool at all.
+  fallback path (below) carries the same mesh-disable flag.
+- **Write is separate.** `ask_claude_write` (the file-editing variant) is offered only to
+  hosts that can gate it per-tool (today: Codex); hosts whose MCP trust is server-wide
+  (Gemini, OpenCode) never see a write tool. The installer auto-approves **only** the
+  read-only `ask_claude` and leaves `ask_claude_write` unapproved, so Codex prompts you
+  before any edit — don't add an approval override for it unless you want unattended writes.
 - A stuck callee is killed (whole process group) after 10 minutes; output is capped;
   at most 4 callees run at once (per host).
+
+> ⚠️ **The long-job / image path is outside the relay's security boundary.** For jobs
+> over ~10 minutes the installed Claude guidance uses Bash (`codex exec …`, and
+> `genimg.sh` uses `--sandbox workspace-write` to write images). That path carries the
+> mesh-disable flag but is **not** relay-enforced read-only — it relies on your host's
+> normal Bash approval policy. Everything through the `ask_*` tools is; the Bash fallback
+> is not.
 
 <details>
 <summary><b>The critical Codex config line (the installer adds it for you)</b></summary>
