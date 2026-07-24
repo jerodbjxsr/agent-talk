@@ -42,6 +42,29 @@ let running = 0;
 // Every callee runs in the folder this server started in (the host's workspace).
 const SERVER_CWD = process.cwd();
 
+// "Subscription auth only" is enforced mechanically, not by hoping: callee
+// env is the parent env minus anything key-shaped, so a callee CLI can never
+// silently ride an API key instead of its OAuth login. A denylist (not an
+// allowlist) on purpose — an allowlist would break legitimate unknown vars
+// (proxies, locales, CLI homes), and the threat model here is specifically
+// credential-shaped variables.
+const ENV_DENY_EXACT = new Set([
+  "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+  "OPENAI_API_KEY", "OPENROUTER_API_KEY",
+  "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS",
+  "MOONSHOT_API_KEY", "DASHSCOPE_API_KEY",
+]);
+const ENV_DENY_PATTERN = /_API_KEY$|_API_TOKEN$|_AUTH_TOKEN$/;
+export function buildChildEnv(base = process.env, depth = DEPTH) {
+  const env = {};
+  for (const [k, v] of Object.entries(base)) {
+    if (ENV_DENY_EXACT.has(k) || ENV_DENY_PATTERN.test(k)) continue;
+    env[k] = v;
+  }
+  env.AGENT_TALK_DEPTH = String(depth + 1);
+  return env;
+}
+
 // Windows searches the current folder before PATH, so a repo could plant a
 // fake <agent>.exe. We resolve the real one from PATH once, at startup.
 function resolveOnWindowsPath(exeName) {
@@ -118,6 +141,26 @@ export function codexExtract(events, exitCode, errText) {
   return { ok: false, text: `codex exited ${exitCode}: ${reason}`.trim() };
 }
 
+// Claude's docs say --bare will become the default for -p in a future
+// release, and bare mode skips OAuth/keychain (API-key auth only). If that
+// flips under us, headless calls start failing with auth errors even though
+// interactive claude works. We can't preflight it cheaply, but we can make
+// the failure self-explanatory the moment it happens.
+export function withClaudeAuthHint(result) {
+  if (!result.ok && /api key|authenticat|logged? in|credential/i.test(result.text)) {
+    return {
+      ok: false,
+      text:
+        result.text +
+        "\n(agent-talk: this looks like an auth failure. If interactive claude " +
+        "works but headless calls fail after a Claude Code update, -p may now " +
+        "default to --bare mode, which skips subscription auth — see the README " +
+        "and pin or flag the non-bare mode.)",
+    };
+  }
+  return result;
+}
+
 // Tool text is generated from two name forms so the claude tools stay
 // byte-identical to upstream Frenemy: `title` in the tool's opening sentence
 // ("Claude Code"), `short` everywhere else ("Claude").
@@ -152,24 +195,31 @@ const AGENTS = {
       "--setting-sources", "user",
     ],
     parse: (out, code, err) =>
-      parseJsonDoc(out, code, err, {
-        name: "claude",
-        text: "result",
-        errorFlag: "is_error",
-        errorFallback: "Claude reported an error.",
-      }),
+      withClaudeAuthHint(
+        parseJsonDoc(out, code, err, {
+          name: "claude",
+          text: "result",
+          errorFlag: "is_error",
+          errorFallback: "Claude reported an error.",
+        })
+      ),
     hostCaps: { perToolApproval: true },
   },
   codex: {
     title: "Codex",
     short: "Codex",
     bin: resolveBin("codex", "codex.exe"),
-    // Callee flips on in the mesh-core PR, once the per-invocation
-    // mesh-disable override (V1 in docs/PLAN-v1.md) is verified. The parser
-    // is already fixture-tested so enabling is a one-flag change.
-    calleeEnabled: false,
+    calleeEnabled: true,
     promptVia: "stdin",
-    readArgs: ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--json", "-"],
+    // Read-only OS sandbox, and the whole MCP table wiped for this invocation
+    // (-c mcp_servers={}) so a callee Codex cannot see or re-enter the mesh —
+    // codex's equivalent of claude's --strict-mcp-config. Live-verified on
+    // codex 0.144.1 (docs/PLAN-v1.md, V1); the per-server enabled=false form
+    // errors when the server isn't in config, so don't "simplify" to it.
+    readArgs: [
+      "exec", "--sandbox", "read-only", "--skip-git-repo-check",
+      "--json", "-c", "mcp_servers={}", "-",
+    ],
     writeArgs: null,
     parse: (out, code, err) => parseNdjson(out, code, err, codexExtract),
     hostCaps: { perToolApproval: true },
@@ -271,7 +321,7 @@ function runAgent(agentName, { prompt }, write) {
       cwd: SERVER_CWD,
       stdio: ["pipe", "pipe", "pipe"],
       detached: process.platform !== "win32",
-      env: { ...process.env, AGENT_TALK_DEPTH: String(DEPTH + 1) },
+      env: buildChildEnv(),
     });
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");

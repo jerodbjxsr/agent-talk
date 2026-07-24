@@ -17,6 +17,8 @@ import {
   parseNdjson,
   codexExtract,
   sanitize,
+  buildChildEnv,
+  withClaudeAuthHint,
 } from "../agent-talk-mcp.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -100,6 +102,37 @@ test("parseJsonDoc: live-captured claude error fixture (bogus model)", () => {
 test("codexExtract: zero exit but no answer event is an error", () => {
   const r = parseNdjson('{"type":"turn.started"}\n', 0, "", codexExtract);
   assert.equal(r.ok, false);
+});
+
+// ---------- child env scrubbing (unit) ----------
+
+test("buildChildEnv drops key-shaped vars, keeps the rest, increments depth", () => {
+  const env = buildChildEnv(
+    {
+      PATH: "/usr/bin",
+      HOME: "/home/u",
+      ANTHROPIC_API_KEY: "leak",
+      WEIRD_SERVICE_API_TOKEN: "leak",
+      HTTP_PROXY: "http://proxy:3128",
+    },
+    0
+  );
+  assert.equal(env.PATH, "/usr/bin");
+  assert.equal(env.HTTP_PROXY, "http://proxy:3128");
+  assert.equal(env.AGENT_TALK_DEPTH, "1");
+  assert.ok(!("ANTHROPIC_API_KEY" in env));
+  assert.ok(!("WEIRD_SERVICE_API_TOKEN" in env));
+});
+
+// ---------- claude auth hint ----------
+
+test("withClaudeAuthHint annotates auth-looking failures only", () => {
+  const authFail = withClaudeAuthHint({ ok: false, text: "Invalid API key · Fix external API key" });
+  assert.match(authFail.text, /--bare/);
+  const otherFail = withClaudeAuthHint({ ok: false, text: "file not found" });
+  assert.doesNotMatch(otherFail.text, /--bare/);
+  const success = withClaudeAuthHint({ ok: true, text: "API keys are configured like this…" });
+  assert.equal(success.text, "API keys are configured like this…");
 });
 
 // ---------- sanitize ----------
@@ -224,23 +257,77 @@ test("default host (codex, no --host flag) sees the upstream tool surface, byte-
   }
 });
 
-test("gemini host gets no write tool (no per-tool approval granularity)", async () => {
+test("gemini host gets read-only tools only (no per-tool approval granularity)", async () => {
   const s = startServer({ args: ["--host", "gemini"] });
   try {
     const r = await s.call("tools/list");
-    assert.deepEqual(r.result.tools.map((t) => t.name), ["ask_claude"]);
+    assert.deepEqual(r.result.tools.map((t) => t.name), ["ask_claude", "ask_codex"]);
   } finally {
     s.stop();
   }
 });
 
-test("claude host sees no tools yet (codex callee lands with mesh core)", async () => {
+test("claude host sees ask_codex and not itself", async () => {
   const s = startServer({ args: ["--host", "claude"] });
   try {
     const r = await s.call("tools/list");
-    assert.deepEqual(r.result.tools, []);
+    assert.deepEqual(r.result.tools.map((t) => t.name), ["ask_codex"]);
   } finally {
     s.stop();
+  }
+});
+
+test("ask_codex relays the stub answer and spawns sandboxed with the mesh disabled", async () => {
+  const argvFile = join(mkdtempSync(join(tmpdir(), "agenttalk-")), "argv");
+  const s = startServer({
+    args: ["--host", "claude"],
+    env: { STUB_ARGV_FILE: argvFile },
+  });
+  try {
+    const r = await s.call("tools/call", {
+      name: "ask_codex",
+      arguments: { prompt: "hi" },
+    });
+    assert.equal(r.result.isError, false);
+    assert.equal(r.result.content[0].text, "stub codex answer");
+    const argv = readFileSync(argvFile, "utf8").replace(/\n$/, "").split("\n");
+    assert.deepEqual(argv, [
+      "exec", "--sandbox", "read-only", "--skip-git-repo-check",
+      "--json", "-c", "mcp_servers={}", "-",
+    ]);
+  } finally {
+    s.stop();
+    rmSync(dirname(argvFile), { recursive: true, force: true });
+  }
+});
+
+test("callee env is scrubbed of key-shaped credentials", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agenttalk-"));
+  const envFile = join(dir, "env");
+  const s = startServer({
+    args: ["--host", "claude"],
+    env: {
+      STUB_ENV_FILE: envFile,
+      ANTHROPIC_API_KEY: "sk-test-leak",
+      OPENAI_API_KEY: "sk-test-leak",
+      SOMETHING_CUSTOM_API_KEY: "sk-test-leak",
+      MY_SERVICE_AUTH_TOKEN: "tok-test-leak",
+    },
+  });
+  try {
+    const r = await s.call("tools/call", {
+      name: "ask_codex",
+      arguments: { prompt: "hi" },
+    });
+    assert.equal(r.result.isError, false);
+    const env = readFileSync(envFile, "utf8");
+    assert.doesNotMatch(env, /sk-test-leak|tok-test-leak/);
+    assert.match(env, /^AGENT_TALK_DEPTH=1$/m);
+    assert.match(env, /^PATH=/m);
+    assert.match(env, /^HOME=/m);
+  } finally {
+    s.stop();
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
