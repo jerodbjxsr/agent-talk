@@ -71,7 +71,7 @@ test("fresh install writes managed regions into both configs", () => {
 
     const md = readFileSync(join(home, ".claude", "CLAUDE.md"), "utf8");
     assert.match(md, /agent-talk >>>/);
-    assert.match(md, /# Codex is always available/);
+    assert.match(md, /# Other coding agents are always available/);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -107,17 +107,104 @@ test("reconcile repairs edits inside the region and preserves everything outside
     // Corrupt the managed region and add trailing user content.
     const mdPath = join(home, ".claude", "CLAUDE.md");
     let md = readFileSync(mdPath, "utf8");
-    md = md.replace("# Codex is always available", "# TAMPERED HEADING");
+    md = md.replace("# Other coding agents are always available", "# TAMPERED HEADING");
     md += "\n# User section added later\n";
     writeFileSync(mdPath, md);
 
     runInstaller({ home });
     const repaired = readFileSync(mdPath, "utf8");
-    assert.match(repaired, /# Codex is always available/);
+    assert.match(repaired, /# Other coding agents are always available/);
     assert.doesNotMatch(repaired, /TAMPERED/);
     assert.match(repaired, /# My own standing orders/);
     assert.match(repaired, /Do not touch this line\./);
     assert.match(repaired, /# User section added later/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("host mounts: claude via mcp add, opencode and gemini via owned JSON keys", () => {
+  const home = freshHome();
+  try {
+    runInstaller({ home });
+
+    // Claude: driven through the CLI (stubbed), reconcile = remove + add.
+    const mcpLog = readFileSync(join(home, ".claude-stub-mcp.log"), "utf8");
+    assert.match(mcpLog, /^mcp remove -s user agent_talk$/m);
+    assert.match(mcpLog, /^mcp add -s user agent_talk -- .* --host claude$/m);
+
+    // OpenCode: owned key in otherwise-untouched JSON.
+    const oc = JSON.parse(
+      readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf8")
+    );
+    assert.equal(oc.mcp.agent_talk.type, "local");
+    assert.deepEqual(oc.mcp.agent_talk.command.slice(-2), ["--host", "opencode"]);
+    assert.equal(oc.mcp.agent_talk.timeout, 600000);
+
+    // Gemini: per-server trust (why this host only ever gets read-only tools).
+    const gm = JSON.parse(readFileSync(join(home, ".gemini", "settings.json"), "utf8"));
+    assert.deepEqual(gm.mcpServers.agent_talk.args.slice(-2), ["--host", "gemini"]);
+    assert.equal(gm.mcpServers.agent_talk.trust, true);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("JSON mounts preserve user keys and converge on re-run", () => {
+  const home = freshHome();
+  try {
+    mkdirSync(join(home, ".config", "opencode"), { recursive: true });
+    writeFileSync(
+      join(home, ".config", "opencode", "opencode.json"),
+      '{"theme":"dark","mcp":{"other":{"type":"remote","url":"https://x"}}}\n'
+    );
+    runInstaller({ home });
+    const first = readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf8");
+    const oc = JSON.parse(first);
+    assert.equal(oc.theme, "dark"); // user key preserved
+    assert.equal(oc.mcp.other.url, "https://x"); // sibling server preserved
+    assert.equal(oc.mcp.agent_talk.type, "local");
+
+    const out = runInstaller({ home });
+    assert.match(out, /unchanged: .*opencode\.json/);
+    assert.equal(
+      readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf8"),
+      first
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("invalid JSON config aborts instead of clobbering", () => {
+  const home = freshHome();
+  try {
+    mkdirSync(join(home, ".config", "opencode"), { recursive: true });
+    writeFileSync(join(home, ".config", "opencode", "opencode.json"), "{broken");
+    assert.throws(
+      () => runInstaller({ home }),
+      (e) => {
+        assert.match(String(e.stderr), /not valid JSON/);
+        return true;
+      }
+    );
+    assert.equal(
+      readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf8"),
+      "{broken" // untouched
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("dry run does not touch claude mcp or create JSON configs", () => {
+  const home = freshHome();
+  try {
+    const out = runInstaller({ home, args: ["--dry-run"] });
+    assert.match(out, /would run: claude mcp add/);
+    assert.equal(existsSync(join(home, ".claude-stub-mcp.log")), false);
+    assert.equal(existsSync(join(home, ".config")), false);
+    assert.equal(existsSync(join(home, ".gemini")), false);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

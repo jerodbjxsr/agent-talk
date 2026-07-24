@@ -2,6 +2,11 @@
 # Test stub standing in for the claude CLI. Records its argv for assertions,
 # consumes stdin (the prompt), optionally dawdles (timeout tests), then emits
 # a canned single-JSON-doc answer like `claude -p --output-format json`.
+# The `mcp` subcommand (used by install.sh) is logged and succeeds.
+if [ "$1" = "mcp" ]; then
+  printf '%s\n' "$*" >> "$HOME/.claude-stub-mcp.log"
+  exit 0
+fi
 if [ -n "$STUB_ARGV_FILE" ]; then
   printf '%s\n' "$@" > "$STUB_ARGV_FILE"
 fi

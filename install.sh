@@ -80,7 +80,7 @@ if [[ -n "$CODEX_VER" ]]; then
 fi
 
 [[ -f "$DIR/agent-talk-mcp.mjs" ]] || fail "agent-talk-mcp.mjs is missing from $DIR, run this script from inside the agent-talk folder."
-[[ -f "$DIR/CLAUDE-codex-section.md" ]] || fail "CLAUDE-codex-section.md is missing from $DIR, the folder is incomplete."
+[[ -f "$DIR/CLAUDE-agents-section.md" ]] || fail "CLAUDE-agents-section.md is missing from $DIR, the folder is incomplete."
 
 # TOML strings can't contain raw " or \. Escape them (rare, but a
 # folder name could have them).
@@ -120,6 +120,13 @@ if (i !== -1 && j > i) {
 }
 fs.writeFileSync(out, next);
 NODE_EOF
+  apply_candidate "$file" "$candidate"
+}
+
+# apply_candidate FILE CANDIDATE-FILE — shared endgame for every config edit:
+# no-op if identical, diff in a dry run, atomic backup+rename otherwise.
+apply_candidate() {
+  local file="$1" candidate="$2"
   if cmp -s "$file" "$candidate" 2>/dev/null; then
     note "unchanged: $file"
     rm -f "$candidate"
@@ -135,6 +142,40 @@ NODE_EOF
     mv "$candidate" "$file"
     echo "✅ updated: $file  (backup: $file.agent-talk-backup)"
   fi
+}
+
+# set_json_key FILE DOT-PATH JSON-VALUE — reconcile one key we own inside a
+# JSON config (strict JSON has no comments, so ownership is the key itself).
+# Everything else in the file is preserved; invalid existing JSON aborts.
+set_json_key() {
+  local file="$1" keypath="$2" value="$3"
+  local candidate
+  candidate="$(mktemp)"
+  file="$file" keypath="$keypath" value="$value" out="$candidate" node - <<'NODE_EOF'
+const fs = require("fs");
+const { file, keypath, value, out } = process.env;
+let root = {};
+if (fs.existsSync(file)) {
+  const raw = fs.readFileSync(file, "utf8");
+  if (raw.trim() !== "") {
+    try {
+      root = JSON.parse(raw);
+    } catch {
+      console.error(`❌ ${file} is not valid JSON; fix it by hand and re-run.`);
+      process.exit(2);
+    }
+  }
+}
+const keys = keypath.split(".");
+let node = root;
+for (const k of keys.slice(0, -1)) {
+  if (typeof node[k] !== "object" || node[k] === null) node[k] = {};
+  node = node[k];
+}
+node[keys[keys.length - 1]] = JSON.parse(value);
+fs.writeFileSync(out, JSON.stringify(root, null, 2) + "\n");
+NODE_EOF
+  apply_candidate "$file" "$candidate"
 }
 
 # --- 2. Point Codex at the relay -----------------------------
@@ -204,7 +245,44 @@ echo "Claude guidance section:"
 replace_region "$CLAUDE_MD" \
   "<!-- >>> agent-talk >>> managed by install.sh; edits inside are overwritten -->" \
   "<!-- <<< agent-talk <<< -->" \
-  "$DIR/CLAUDE-codex-section.md"
+  "$DIR/CLAUDE-agents-section.md"
+
+# --- 3b. Mount the relay in Claude Code (user scope) ---------
+# `claude mcp add` is the supported interface for Claude's MCP config, so we
+# drive it rather than editing the file underneath it. Reconcile = remove
+# our server (ignoring "not found") and re-add with current paths.
+echo
+echo "Claude mount:"
+if [[ "$DRY_RUN" == 1 ]]; then
+  echo "   would run: claude mcp add -s user agent_talk -- \"$NODE_BIN\" \"$DIR/agent-talk-mcp.mjs\" --host claude"
+else
+  claude mcp remove -s user agent_talk >/dev/null 2>&1 || true
+  claude mcp add -s user agent_talk -- "$NODE_BIN" "$DIR/agent-talk-mcp.mjs" --host claude >/dev/null
+  echo "✅ Claude mounts the relay (user scope): ask_codex is available in every Claude session."
+fi
+
+# --- 3c. Mount the relay in OpenCode / Gemini, if installed ---
+# Both get read-only tools only (their MCP approval is per-server, not
+# per-tool — see docs/DESIGN.md). Skipped cleanly when the CLI is absent.
+if command -v opencode >/dev/null; then
+  echo
+  echo "OpenCode mount (~/.config/opencode/opencode.json):"
+  set_json_key "$HOME/.config/opencode/opencode.json" "mcp.agent_talk" \
+    "{\"type\":\"local\",\"command\":[\"$NODE_TOML\",\"$DIR_TOML/agent-talk-mcp.mjs\",\"--host\",\"opencode\"],\"enabled\":true,\"timeout\":600000}"
+else
+  note "opencode not installed; skipping its mount. Re-run after installing it."
+fi
+
+if command -v gemini >/dev/null; then
+  echo
+  echo "Gemini mount (~/.gemini/settings.json):"
+  # trust:true is per-server (Gemini's finest grain) and is exactly why this
+  # host is only ever offered read-only tools by the relay.
+  set_json_key "$HOME/.gemini/settings.json" "mcpServers.agent_talk" \
+    "{\"command\":\"$NODE_TOML\",\"args\":[\"$DIR_TOML/agent-talk-mcp.mjs\",\"--host\",\"gemini\"],\"timeout\":600000,\"trust\":true}"
+else
+  note "gemini not installed; skipping its mount. Re-run after installing it."
+fi
 
 # --- 4. Optional image script --------------------------------
 if [[ -f "$HOME/.claude/scripts/genimg.sh" ]]; then
