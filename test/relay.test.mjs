@@ -1,4 +1,4 @@
-// Tests for the agent-talk relay. Run: node --test test/
+// Tests for the agent-talk relay. Run: node --test 'test/*.test.mjs'
 // Unit tests hit the exported parsers directly; integration tests speak real
 // MCP over stdio to a spawned server, with a stub `claude` on PATH so no
 // subscription quota is spent and no real agent runs.
