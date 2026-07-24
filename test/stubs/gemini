@@ -1,0 +1,4 @@
+#!/bin/sh
+# Presence-only stub: install.sh checks `command -v gemini` before wiring
+# its mount; the binary is never executed by the installer.
+exit 0

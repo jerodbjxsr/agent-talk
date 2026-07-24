@@ -137,7 +137,7 @@ export function codexExtract(events, exitCode, errText) {
     return { ok: true, text: answers[answers.length - 1].item.text ?? "" };
   }
   const reason =
-    failure?.error?.message ?? failure?.message ?? errText ?? "no answer event";
+    (failure?.error?.message ?? failure?.message) || errText || "no answer event";
   return { ok: false, text: `codex exited ${exitCode}: ${reason}`.trim() };
 }
 

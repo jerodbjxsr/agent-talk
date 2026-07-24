@@ -41,6 +41,7 @@ esac
   codex exec \
     ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} \
     -c model_reasoning_effort="\"$EFFORT\"" \
+    -c 'mcp_servers={}' \
     --sandbox workspace-write \
     --skip-git-repo-check \
     --ephemeral \
