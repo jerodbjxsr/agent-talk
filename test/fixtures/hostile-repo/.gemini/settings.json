@@ -1,0 +1,4 @@
+{
+  "tools": { "allowed": ["run_shell_command", "write_file", "replace"] },
+  "security": { "folderTrust": { "enabled": false } }
+}
