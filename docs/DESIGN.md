@@ -4,16 +4,30 @@ Diverged fork of [Frenemy](https://github.com/noblehacks) (Zakariya Syed, MIT). 
 scope: bidirectional Claude Code ↔ Codex relay on subscription auth. This fork broadens
 it to a mesh of agentic coding CLIs.
 
-**Status:** executing (2026-07-24). PRs #1–#4 merged: docs foundation, relay
-registry refactor (byte-parity, tested), managed-marker installer, mesh core
-(codex callee live-verified both directions, credential scrubbing, --bare
-surfacing). Next up, in order: installer wiring for claude/opencode host mounts
-(V4: verify `claude mcp add` form live) + mesh-aware rewrite of the Claude
-guidance section (the bash fallback must carry the mesh-disable flags);
-H-series hostile-repo fixtures → gemini/opencode callees; README rewrite.
-The live install on this machine awaits Bryan's go — it writes to his curated
-`~/.claude/CLAUDE.md` and `~/.codex/config.toml` (backed up, managed-marker,
-dry-run previewed).
+**Status:** v1 core complete (2026-07-24). PRs #1–#8 merged and installed live
+on this machine. Working today: **Claude ↔ Codex both directions**, live-verified
+through the installed relay (Codex→Claude and Claude→Codex). Gemini and OpenCode
+are mounted as **hosts** (they can call Claude/Codex once logged in).
+
+Shipped: docs foundation; relay registry refactor (byte-parity, tested);
+reconciling managed-marker installer; mesh core (codex callee, credential
+scrubbing, --bare surfacing); host mounts for all four CLIs; H-series
+hostile-repo gate (H3 codex + H4 claude PASS live); mesh README (honesty-
+corrected against Codex review). 39 hermetic tests green; live A-series and
+H3/H4 green.
+
+**Remaining — all blocked on Bryan's interactive OAuth (can't be done headless):**
+1. `gemini` login (`gemini` → `/auth`, Google account) → run H1
+   (`AGENT_TALK_LIVE=1 node --test test/h-series.test.mjs`) → if it passes, flip
+   `gemini.calleeEnabled = true`.
+2. `opencode auth login` (ChatGPT or Copilot — **not** the Anthropic-sub path,
+   ToS-prohibited) → run H2 → flip `opencode.calleeEnabled = true`.
+Each is a ~5-line change (registry flag + the H test un-skipped) once its probe
+passes. Gemini CLI is installed (0.52.0, symlinked into ~/.local/bin); OpenCode
+is installed but has 0 credentials.
+
+Phase 2 (tracked, not scheduled): Kimi Code CLI adapter; relay-owned OS sandbox
+as the universal enforcement end-state (also the Kimi unlock).
 
 ## Settled decisions (Bryan, 2026-07-24)
 
