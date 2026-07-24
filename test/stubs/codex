@@ -1,0 +1,10 @@
+#!/bin/sh
+# Test stub standing in for the codex CLI. Answers --version (the installer
+# checks it) and otherwise emits a minimal NDJSON transcript like
+# `codex exec --json`.
+if [ "$1" = "--version" ]; then
+  echo "codex-cli 0.144.1"
+  exit 0
+fi
+cat > /dev/null
+printf '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"stub codex answer"}}\n'
