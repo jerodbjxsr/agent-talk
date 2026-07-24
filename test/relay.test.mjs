@@ -74,6 +74,29 @@ test("parseNdjson: malformed lines are skipped, not fatal", () => {
   assert.deepEqual(r, { ok: true, text: "ok" });
 });
 
+test("parseNdjson: valid-JSON non-object lines (null, numbers) are skipped, not fatal", () => {
+  const out =
+    "null\n" +
+    "42\n" +
+    '"a bare string"\n' +
+    '{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\n';
+  const r = parseNdjson(out, 0, "", codexExtract);
+  assert.deepEqual(r, { ok: true, text: "ok" });
+});
+
+test("parseJsonDoc: live-captured claude success fixture", () => {
+  const out = readFileSync(join(FIXTURES, "claude-print-success.json"), "utf8");
+  const r = parseJsonDoc(out, 0, "", CLAUDE_MAP);
+  assert.deepEqual(r, { ok: true, text: "hello" });
+});
+
+test("parseJsonDoc: live-captured claude error fixture (bogus model)", () => {
+  const out = readFileSync(join(FIXTURES, "claude-print-error.json"), "utf8");
+  const r = parseJsonDoc(out, 1, "", CLAUDE_MAP);
+  assert.equal(r.ok, false);
+  assert.match(r.text, /bogus-model-xyz/);
+});
+
 test("codexExtract: zero exit but no answer event is an error", () => {
   const r = parseNdjson('{"type":"turn.started"}\n', 0, "", codexExtract);
   assert.equal(r.ok, false);
@@ -151,14 +174,51 @@ test("initialize reports agent-talk", async () => {
   }
 });
 
-test("default host (codex, no --host flag) sees exactly the upstream tool surface", async () => {
+test("default host (codex, no --host flag) sees the upstream tool surface, byte-identical", async () => {
+  // Frenemy v1.4.0's exact tool metadata; the compatibility contract for
+  // every existing install. Copied verbatim from upstream ask-claude-mcp.mjs.
+  const UPSTREAM_COMMON =
+    "Claude sees the repo on disk, so refer to files by path. Send one self-contained " +
+    "instruction. Claude has no memory of your conversation.";
+  const UPSTREAM_TOOLS = [
+    {
+      name: "ask_claude",
+      description:
+        "Ask Claude Code a question about this repo and return its answer. File-editing " +
+        "tools and the shell are disabled for this call. Use for code review, second " +
+        "opinions, and explanations. " + UPSTREAM_COMMON,
+      inputSchema: {
+        type: "object",
+        properties: {
+          prompt: {
+            type: "string",
+            description: "A complete, self-contained instruction for Claude.",
+          },
+        },
+        required: ["prompt"],
+      },
+    },
+    {
+      name: "ask_claude_write",
+      description:
+        "Ask Claude Code to make changes in this repo (refactors, fixes, new code). " +
+        "Claude MAY edit files. " + UPSTREAM_COMMON,
+      inputSchema: {
+        type: "object",
+        properties: {
+          prompt: {
+            type: "string",
+            description: "A complete, self-contained instruction for Claude.",
+          },
+        },
+        required: ["prompt"],
+      },
+    },
+  ];
   const s = startServer();
   try {
     const r = await s.call("tools/list");
-    assert.deepEqual(
-      r.result.tools.map((t) => t.name),
-      ["ask_claude", "ask_claude_write"]
-    );
+    assert.deepEqual(r.result.tools, UPSTREAM_TOOLS);
   } finally {
     s.stop();
   }
@@ -194,10 +254,15 @@ test("ask_claude relays the stub answer and spawns with enforced read-only args"
     });
     assert.equal(r.result.isError, false);
     assert.equal(r.result.content[0].text, "stub answer");
-    const argv = readFileSync(argvFile, "utf8").split("\n");
-    for (const flag of ["--safe-mode", "--disallowedTools", "--strict-mcp-config", "-p"]) {
-      assert.ok(argv.includes(flag), `missing ${flag} in spawn argv`);
-    }
+    // Exact argv, not just flag presence: a relaxed tool ban must fail here.
+    const argv = readFileSync(argvFile, "utf8").replace(/\n$/, "").split("\n");
+    assert.deepEqual(argv, [
+      "-p", "--output-format", "json",
+      "--safe-mode",
+      "--disallowedTools",
+      "Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch",
+      "--strict-mcp-config",
+    ]);
   } finally {
     s.stop();
     rmSync(dirname(argvFile), { recursive: true, force: true });
@@ -213,10 +278,12 @@ test("ask_claude_write spawns with acceptEdits and user-only settings", async ()
       arguments: { prompt: "hi" },
     });
     assert.equal(r.result.isError, false);
-    const argv = readFileSync(argvFile, "utf8").split("\n");
-    assert.ok(argv.includes("acceptEdits"));
-    assert.ok(argv.includes("--setting-sources"));
-    assert.ok(!argv.includes("--safe-mode"));
+    const argv = readFileSync(argvFile, "utf8").replace(/\n$/, "").split("\n");
+    assert.deepEqual(argv, [
+      "-p", "--output-format", "json",
+      "--permission-mode", "acceptEdits",
+      "--setting-sources", "user",
+    ]);
   } finally {
     s.stop();
     rmSync(dirname(argvFile), { recursive: true, force: true });
@@ -252,19 +319,22 @@ test("recursion guard refuses calls at depth 2", async () => {
 });
 
 test("child env carries incremented depth", async () => {
-  // depth 1 in the server → the spawned callee must see AGENT_TALK_DEPTH=2.
-  // The stub records env indirectly: we assert via a wrapper stub is overkill,
-  // so instead run at depth 1 (allowed) and rely on the guard test above for
-  // refusal; here we just confirm a depth-1 call still works end to end.
-  const s = startServer({ env: { AGENT_TALK_DEPTH: "1" } });
+  // Server at depth 1 (allowed) → the spawned callee must see depth 2.
+  const dir = mkdtempSync(join(tmpdir(), "agenttalk-"));
+  const depthFile = join(dir, "depth");
+  const s = startServer({
+    env: { AGENT_TALK_DEPTH: "1", STUB_DEPTH_FILE: depthFile },
+  });
   try {
     const r = await s.call("tools/call", {
       name: "ask_claude",
       arguments: { prompt: "hi" },
     });
     assert.equal(r.result.isError, false);
+    assert.equal(readFileSync(depthFile, "utf8"), "2");
   } finally {
     s.stop();
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

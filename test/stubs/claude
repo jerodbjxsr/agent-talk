@@ -5,6 +5,9 @@
 if [ -n "$STUB_ARGV_FILE" ]; then
   printf '%s\n' "$@" > "$STUB_ARGV_FILE"
 fi
+if [ -n "$STUB_DEPTH_FILE" ]; then
+  printf '%s' "${AGENT_TALK_DEPTH:-unset}" > "$STUB_DEPTH_FILE"
+fi
 cat > /dev/null
 if [ -n "$STUB_SLEEP" ]; then
   # Grandchild that tries to outlive us: proves the relay kills the whole

@@ -87,7 +87,11 @@ export function parseNdjson(out, exitCode, errText, extract) {
     const l = line.trim();
     if (!l) continue;
     try {
-      events.push(JSON.parse(l));
+      const v = JSON.parse(l);
+      // Valid JSON that isn't an object (null, a bare number, …) is just as
+      // unusable as a syntax error; count it, don't crash on it.
+      if (v && typeof v === "object") events.push(v);
+      else malformed++;
     } catch {
       malformed++;
     }
@@ -114,9 +118,9 @@ export function codexExtract(events, exitCode, errText) {
   return { ok: false, text: `codex exited ${exitCode}: ${reason}`.trim() };
 }
 
-const COMMON_DESCRIPTION =
-  "sees the repo on disk, so refer to files by path. Send one self-contained " +
-  "instruction. It has no memory of your conversation.";
+// Tool text is generated from two name forms so the claude tools stay
+// byte-identical to upstream Frenemy: `title` in the tool's opening sentence
+// ("Claude Code"), `short` everywhere else ("Claude").
 
 // ---- The agent registry. calleeEnabled gates whether ask_<name> exists at all:
 // an agent earns it only when its read-only enforcement story is proven
@@ -124,7 +128,8 @@ const COMMON_DESCRIPTION =
 // write tools are only offered to hosts that can gate them per-tool.
 const AGENTS = {
   claude: {
-    label: "Claude Code",
+    title: "Claude Code",
+    short: "Claude",
     bin: resolveBin("claude", "claude.exe"),
     calleeEnabled: true,
     promptVia: "stdin",
@@ -156,7 +161,8 @@ const AGENTS = {
     hostCaps: { perToolApproval: true },
   },
   codex: {
-    label: "Codex",
+    title: "Codex",
+    short: "Codex",
     bin: resolveBin("codex", "codex.exe"),
     // Callee flips on in the mesh-core PR, once the per-invocation
     // mesh-disable override (V1 in docs/PLAN-v1.md) is verified. The parser
@@ -172,13 +178,15 @@ const AGENTS = {
   // read-only story is unproven against a hostile repo (H1/H2 in the plan).
   // They mount this server and call others; nobody calls them yet.
   gemini: {
-    label: "Gemini",
+    title: "Gemini",
+    short: "Gemini",
     bin: resolveBin("gemini", "gemini.exe"),
     calleeEnabled: false,
     hostCaps: { perToolApproval: false }, // MCP trust is per-server only
   },
   opencode: {
-    label: "OpenCode",
+    title: "OpenCode",
+    short: "OpenCode",
     bin: resolveBin("opencode", "opencode.exe"),
     calleeEnabled: false,
     hostCaps: { perToolApproval: false },
@@ -195,15 +203,17 @@ function buildTools() {
     tools.push({
       name: `ask_${name}`,
       description:
-        `Ask ${a.label} a question about this repo and return its answer. File-editing ` +
+        `Ask ${a.title} a question about this repo and return its answer. File-editing ` +
         `tools and the shell are disabled for this call. Use for code review, second ` +
-        `opinions, and explanations. ${a.label} ` + COMMON_DESCRIPTION,
+        `opinions, and explanations. ${a.short} sees the repo on disk, so refer to ` +
+        `files by path. Send one self-contained instruction. ${a.short} has no memory ` +
+        `of your conversation.`,
       inputSchema: {
         type: "object",
         properties: {
           prompt: {
             type: "string",
-            description: `A complete, self-contained instruction for ${a.label}.`,
+            description: `A complete, self-contained instruction for ${a.short}.`,
           },
         },
         required: ["prompt"],
@@ -213,14 +223,16 @@ function buildTools() {
       tools.push({
         name: `ask_${name}_write`,
         description:
-          `Ask ${a.label} to make changes in this repo (refactors, fixes, new code). ` +
-          `${a.label} MAY edit files. ${a.label} ` + COMMON_DESCRIPTION,
+          `Ask ${a.title} to make changes in this repo (refactors, fixes, new code). ` +
+          `${a.short} MAY edit files. ${a.short} sees the repo on disk, so refer to ` +
+          `files by path. Send one self-contained instruction. ${a.short} has no ` +
+          `memory of your conversation.`,
         inputSchema: {
           type: "object",
           properties: {
             prompt: {
               type: "string",
-              description: `A complete, self-contained instruction for ${a.label}.`,
+              description: `A complete, self-contained instruction for ${a.short}.`,
             },
           },
           required: ["prompt"],
@@ -239,13 +251,13 @@ function runAgent(agentName, { prompt }, write) {
     if (running >= MAX_CONCURRENT) {
       return resolve({
         ok: false,
-        text: `Too many agent calls at once (limit ${MAX_CONCURRENT}). Try again in a moment.`,
+        text: `Too many ${agent.short} calls at once (limit ${MAX_CONCURRENT}). Try again in a moment.`,
       });
     }
     if (!agent.bin) {
       return resolve({
         ok: false,
-        text: `${agentName} was not found on PATH. Install it (on Windows, the native installer).`,
+        text: `${agentName}.exe was not found on PATH. Install ${agent.title} with the native Windows installer.`,
       });
     }
     running++;
@@ -300,7 +312,7 @@ function runAgent(agentName, { prompt }, write) {
         killTree();
         finish({
           ok: false,
-          text: `${agentName} produced more output than the cap; aborted.`,
+          text: `${agentName} produced more output than the ~${Math.round(MAX_OUTPUT_CHARS / 1048576)} MB cap; aborted.`,
         });
       }
     });
