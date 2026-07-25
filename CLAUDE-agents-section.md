@@ -57,3 +57,21 @@ If the user names a model or an effort level, pass them as environment variables
 (effort: minimal, low, medium, high, xhigh, or ultra; "extra high" means xhigh). If the
 user names neither, set neither: the script then uses the account's default model at
 medium effort. Never edit the script itself.
+
+### Second image source: Antigravity / Gemini (macOS only)
+
+`~/.claude/scripts/genimg-agy.sh "<image prompt>" /absolute/path/out.png` — same
+interface, same rules (verbatim prompt, foreground, 600000ms timeout), but the
+image comes from Gemini via `agy` instead of gpt-image-2. Overrides are
+`AGY_MODEL` and `AGY_EFFORT` (low, medium, high).
+
+Pick by what the user asks for. If they just want an image, use `genimg.sh`;
+reach for `genimg-agy.sh` when they name Gemini/Antigravity, or when they want
+the same prompt from both models to compare. Two things to know before you
+promise anything:
+
+- **agy takes its prompt as a command-line argument**, so the prompt is visible
+  in the process list to other local users. `genimg.sh` (Codex) sends the prompt
+  over stdin and does not have this problem — prefer it for anything sensitive.
+- **agy always emits JPEG** at 1024×1024. The script converts to the extension
+  the user asked for, so a `.png` request really is a PNG.
