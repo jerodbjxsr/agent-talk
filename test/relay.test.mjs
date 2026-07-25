@@ -16,6 +16,8 @@ import {
   parseJsonDoc,
   parseNdjson,
   codexExtract,
+  opencodeExtract,
+  parseText,
   sanitize,
   buildChildEnv,
   withClaudeAuthHint,
@@ -52,6 +54,45 @@ test("parseJsonDoc: garbage output reports exit code and stderr", () => {
   assert.equal(r.ok, false);
   assert.match(r.text, /exited 7/);
   assert.match(r.text, /stderr text/);
+});
+
+test("opencodeExtract: live-captured success fixture (opencode 1.16.2)", () => {
+  const out = readFileSync(join(FIXTURES, "opencode-run-success.jsonl"), "utf8");
+  const r = parseNdjson(out, 0, "", opencodeExtract);
+  assert.deepEqual(r, { ok: true, text: "8675309" });
+});
+
+test("opencodeExtract: live-captured error fixture surfaces the nested message", () => {
+  const out = readFileSync(join(FIXTURES, "opencode-run-error.jsonl"), "utf8");
+  const r = parseNdjson(out, 1, "", opencodeExtract);
+  assert.equal(r.ok, false);
+  assert.match(r.text, /Unexpected server error/);
+});
+
+test("opencodeExtract: keeps the last text per part, so a re-emitted part is not doubled", () => {
+  // Whether a part is emitted once (what the fixtures show) or re-emitted as
+  // it grows, the answer must be the final text of each part, joined in order.
+  const events = [
+    { type: "text", part: { id: "a", text: "Hello" } },
+    { type: "text", part: { id: "a", text: "Hello world" } },
+    { type: "text", part: { id: "b", text: "!" } },
+  ];
+  assert.deepEqual(opencodeExtract(events, 0, ""), { ok: true, text: "Hello world!" });
+});
+
+test("opencodeExtract: exit 0 with no answer is a failure, not an empty success", () => {
+  const r = opencodeExtract([], 0, "something broke");
+  assert.equal(r.ok, false);
+  assert.match(r.text, /something broke/);
+});
+
+test("parseText: antigravity plain-prose success and failure", () => {
+  assert.deepEqual(parseText("PONG\n", 0, "", "antigravity"), { ok: true, text: "PONG" });
+  // No JSON mode means errors are detected by exit code, empty output, or a
+  // leading Error: line — weaker than the other adapters, deliberately so.
+  assert.equal(parseText("", 0, "boom", "antigravity").ok, false);
+  assert.equal(parseText("Error: authentication required", 0, "", "antigravity").ok, false);
+  assert.equal(parseText("fine", 1, "", "antigravity").ok, false);
 });
 
 test("codexExtract: live-captured success fixture (codex 0.144.1)", () => {
@@ -251,17 +292,54 @@ test("default host (codex, no --host flag) sees the upstream tool surface, byte-
   const s = startServer();
   try {
     const r = await s.call("tools/list");
-    assert.deepEqual(r.result.tools, UPSTREAM_TOOLS);
+    // The surface may legitimately have GROWN (sandboxed callees came online),
+    // but the two Claude tools an existing Frenemy install depends on must
+    // still be present, first, and byte-identical.
+    assert.deepEqual(r.result.tools.slice(0, 2), UPSTREAM_TOOLS);
   } finally {
     s.stop();
   }
 });
 
+// Sandboxed callees are only offered where the relay can actually apply the
+// sandbox, so the expected tool list is platform-dependent. This mirrors
+// sandboxUnavailableReason() in the relay deliberately: if the two ever drift,
+// these tests fail rather than quietly asserting the wrong surface.
+const CAN_SANDBOX =
+  process.platform === "darwin" && existsSync("/usr/bin/sandbox-exec");
+function onPath(name) {
+  return (process.env.PATH ?? "")
+    .split(":")
+    .some((d) => d && existsSync(join(d, name)));
+}
+const AVAILABLE_CALLEES = {
+  claude: true,
+  codex: true,
+  // Neither is a callee, and in neither case is the sandbox the reason.
+  // antigravity: its headless mode auto-denies even read_file, so it cannot
+  //   answer a question about a repo at all.
+  // opencode: a hostile repo's project config can attach a REMOTE MCP server,
+  //   which needs no exec and so is untouched by the sandbox (see the H2
+  //   blocker test).
+  antigravity: false,
+  opencode: false,
+};
+function expectedTools(host) {
+  const names = [];
+  for (const [agent, available] of Object.entries(AVAILABLE_CALLEES)) {
+    if (agent === host || !available) continue;
+    names.push(`ask_${agent}`);
+    // Only Codex can gate a write tool per-tool, and only Claude offers one.
+    if (agent === "claude" && host === "codex") names.push("ask_claude_write");
+  }
+  return names;
+}
+
 test("antigravity host gets read-only tools only (no per-tool approval granularity)", async () => {
   const s = startServer({ args: ["--host", "antigravity"] });
   try {
     const r = await s.call("tools/list");
-    assert.deepEqual(r.result.tools.map((t) => t.name), ["ask_claude", "ask_codex"]);
+    assert.deepEqual(r.result.tools.map((t) => t.name), expectedTools("antigravity"));
   } finally {
     s.stop();
   }
@@ -271,17 +349,19 @@ test("opencode host gets read-only tools only (no write tool)", async () => {
   const s = startServer({ args: ["--host", "opencode"] });
   try {
     const r = await s.call("tools/list");
-    assert.deepEqual(r.result.tools.map((t) => t.name), ["ask_claude", "ask_codex"]);
+    assert.deepEqual(r.result.tools.map((t) => t.name), expectedTools("opencode"));
   } finally {
     s.stop();
   }
 });
 
-test("claude host sees ask_codex and not itself", async () => {
+test("claude host sees the other agents and not itself", async () => {
   const s = startServer({ args: ["--host", "claude"] });
   try {
     const r = await s.call("tools/list");
-    assert.deepEqual(r.result.tools.map((t) => t.name), ["ask_codex"]);
+    const names = r.result.tools.map((t) => t.name);
+    assert.deepEqual(names, expectedTools("claude"));
+    assert.ok(!names.some((n) => n.startsWith("ask_claude")), "host offered itself");
   } finally {
     s.stop();
   }
@@ -479,10 +559,7 @@ test("compatibility wrapper (old filename) serves the same tools", async () => {
     const init = await s.call("initialize", { protocolVersion: "2025-06-18" });
     assert.equal(init.result.serverInfo.name, "agent-talk");
     const r = await s.call("tools/list");
-    assert.deepEqual(
-      r.result.tools.map((t) => t.name),
-      ["ask_claude", "ask_claude_write"]
-    );
+    assert.deepEqual(r.result.tools.map((t) => t.name), expectedTools("codex"));
   } finally {
     s.stop();
   }

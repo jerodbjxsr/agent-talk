@@ -26,15 +26,19 @@ gets an `ask_<other>` tool for each agent that has passed the safety gate below 
 | **Claude** (host) | — | ✅ `ask_codex` | ⏳ | ⏳ |
 | **Codex** (host) | ✅ `ask_claude` | — | ⏳ | ⏳ |
 | **Antigravity** (host) | ✅ `ask_claude` | ✅ `ask_codex` | — | ⏳ |
-| **OpenCode** (host) | ✅ `ask_claude` | ✅ `ask_codex` | — | ⏳ |
+| **OpenCode** (host) | ✅ `ask_claude` | ✅ `ask_codex` | ⏳ | — |
 
-✅ = usable now. ⏳ = Antigravity and OpenCode are **hosts** today (they can call
-Claude and Codex), but are not yet **callees**: no one can call *them* yet, because
-neither has a read-only mode that can be enforced against a hostile repo — the bar
-Claude and Codex both cleared (see [Security](#security-what-is-locked-down)). The
-specific blockers, per CLI, are recorded in `docs/DESIGN.md`. This staging is
-deliberate: a callee is only offered once its read-only enforcement is provable,
-never on a promise.
+✅ = usable now. ⏳ = **host but not callee**: Antigravity and OpenCode can call
+Claude and Codex, but no one can call *them*. A callee is only offered once its
+read-only enforcement is provable, never on a promise — and both currently fail
+that bar for reasons recorded in `docs/DESIGN.md`:
+
+- **Antigravity**: its headless mode auto-denies every tool needing approval,
+  including reading a file, so a headless `agy` cannot answer questions about a
+  repo at all.
+- **OpenCode**: a hostile repo's own `opencode.json` can attach a **remote** MCP
+  server (a URL, not a process), which the relay-owned sandbox structurally
+  cannot block. Demonstrated, not assumed — see Security below.
 
 **Antigravity** is Google's `agy` CLI, the successor to Gemini CLI. **Excluded:**
 Qwen Code (its free login was discontinued; all remaining auth is API-key-shaped,
@@ -55,7 +59,7 @@ That's it — the answer comes back in the same chat.
 
 **Prerequisites:** `node` 18+, and the CLIs you want to link, each installed, on
 `PATH`, and signed in (run each once to log in). Claude Code and Codex are required;
-Gemini CLI and OpenCode are optional and wired only if present.
+Antigravity and OpenCode are optional and wired only if present (as hosts).
 
 ## Install (one command)
 
@@ -99,13 +103,57 @@ agent instead of that agent's raw tools. Per callee:
 | **Claude** | Enforced | `--safe-mode` (all your customizations off) + the side-effect tools removed (`--disallowedTools`: edit, shell, web) + `--strict-mcp-config` (can't see or re-enter the mesh). |
 | **Codex** | Enforced | `--sandbox read-only` (OS-level) + `-c 'mcp_servers={}'` wiping the callee's MCP table for that run. |
 
-Both **passed a live hostile-repo probe** (2026-07-24): `test/h-series.test.mjs` points
+### The relay-owned OS sandbox
+
+For a callee whose CLI cannot enforce read-only itself, the relay generates a
+**macOS Seatbelt profile** and launches it inside: all file writes denied except
+that CLI's own state dirs, all process execution denied except an allowlist
+(the CLI, `rg`, `git` — **no shell, no JS runtime**), plus a credential deny-list.
+It is wired, tested (`test/sandbox.test.mjs` runs hostile commands under the real
+profile and asserts the kernel refuses them), and ready behind a per-adapter
+`sandbox` flag.
+
+**No callee is enabled by it today, and that is the honest result.** It closes the
+write and local-exec vectors completely. It does not close everything, and the gap
+is what keeps OpenCode host-only: a hostile repo's `opencode.json` is a later
+config layer than anything the relay supplies, and it can point OpenCode at a
+**remote** MCP server. That is a URL, not a process, so an exec allowlist is
+irrelevant to it — a local listener received a full MCP handshake from inside the
+sandbox. Both counters were tested and both fail: denying reads of the project
+config makes OpenCode exit 1 (it treats unreadable as fatal, not absent), and
+Seatbelt filters egress by address and port, never by hostname, so "the vendor's
+API yes, the attacker no" cannot be expressed. The fix is upstream: an
+ignore-project-config mode.
+
+**Outbound network is allowed** under the sandbox, deliberately: these are cloud
+CLIs and a callee with no network cannot answer at all. So "no exfiltration" is not
+a claim this makes. What contains it is that only allowlisted binaries can open a
+socket, and those talk to their own provider — anything the callee reads is seen by
+that provider, exactly as is already true for Claude and Codex. A callee may also
+write inside its own state directory, because it cannot run otherwise; the relay
+regenerates the config it hands the callee on every call, so an edit made by one
+run is never inherited by the next.
+
+**Platform:** the relay-owned sandbox is macOS-only and **fails closed**. Off macOS
+the relay refuses to run a sandboxed callee and withholds the tool rather than
+running it unconfined; the same happens if a required helper (`rg`, `git`) is
+missing, because a denied exec makes a callee hang rather than error. Claude and
+Codex are unaffected — they enforce read-only themselves.
+
+Claude and Codex **passed a live hostile-repo probe** (2026-07-24): `test/h-series.test.mjs` points
 each callee at a deliberately hostile repo (malicious project configs plus injected
 `AGENTS.md`/`CLAUDE.md` demanding a file write, a shell command, and a secret
 exfiltration) and confirms none of it happens — even when the repo sits in a trusted
 project path. This is regression evidence, not a proof of safety: a passing probe means
 "no side effect observed under this attack," and the probe deliberately hits several
 vectors at once to make a false pass unlikely.
+
+That probe has a real weakness worth naming: it cannot tell "the model politely
+declined" apart from "the kernel refused" — and only the second is a security
+property. So the sandbox has its own hermetic tests (`test/sandbox.test.mjs`) that
+take the model out of the loop entirely: they hand a deliberately hostile command
+the generated profile and assert the write fails, the shell will not exec, and a
+denied credential path stays unreadable.
 
 Other properties:
 
@@ -118,7 +166,7 @@ Other properties:
   fallback path (below) carries the same mesh-disable flag.
 - **Write is separate.** `ask_claude_write` (the file-editing variant) is offered only to
   hosts that can gate it per-tool (today: Codex); hosts whose MCP trust is server-wide
-  (Gemini, OpenCode) never see a write tool. The installer auto-approves **only** the
+  (Antigravity, OpenCode) never see a write tool. The installer auto-approves **only** the
   read-only `ask_claude` and leaves `ask_claude_write` unapproved, so Codex prompts you
   before any edit — don't add an approval override for it unless you want unattended writes.
 - A stuck callee is killed (whole process group) after 10 minutes; output is capped;
