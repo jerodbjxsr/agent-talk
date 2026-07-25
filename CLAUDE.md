@@ -1,11 +1,12 @@
 # agent-talk — project rules
 
 Diverged fork of Frenemy (Zakariya Syed, MIT — keep attribution). A mesh relay that
-lets agentic coding CLIs (Claude Code, Codex, Gemini CLI, OpenCode) call each other
+lets agentic coding CLIs (Claude Code, Codex, Antigravity, OpenCode) call each other
 headlessly on subscription/OAuth auth.
 
-**Read first:** `docs/DESIGN.md` (settled decisions — do not relitigate),
-`docs/PLAN-v1.md` (implementation plan, survived adversarial review),
+**Read first:** `docs/HANDOFF.md` (entry point + current next task), then
+`docs/DESIGN.md` (settled decisions — do not relitigate), `docs/PLAN-v1.md`
+(implementation plan, survived adversarial review), and
 `docs/research/cli-adapter-feasibility.md` (per-CLI facts, cited).
 
 ## Hard rules
