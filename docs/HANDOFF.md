@@ -27,23 +27,51 @@ decision lives.
 
 ## Where things stand (2026-07-24)
 
-Merged PRs #1–#10. Working and installed live on Bryan's machine:
+Merged PRs #1–#10, plus the phase-2 **relay-owned OS sandbox**. Working and
+installed live on Bryan's machine:
 
-- **Claude ↔ Codex** call each other both directions (live-verified through the
-  installed relay).
+- **Claude ↔ Codex** call each other both directions (live-verified).
+- **The relay-owned OS sandbox is built, tested and wired** — but it unlocked
+  **no new callee**, which is the honest result. It closes the write and
+  local-exec vectors (proven in `test/sandbox.test.mjs`); it cannot close a
+  project-supplied **remote** MCP server, which is what keeps OpenCode out.
 - **Antigravity (`agy`) and OpenCode are hosts** — they can call Claude/Codex.
-  Verified: the relay's `ask_claude`/`ask_codex` tools load and are visible in
-  each. Full invocation from a host is interactive-approve; **do not hardcode
-  any `--dangerously-skip-permissions`-style flag** to force it headless.
-- **No CLI besides Claude and Codex is a callee yet.** `calleeEnabled` is the
-  gate in the registry.
+  Full invocation from a host is interactive-approve; **do not hardcode any
+  `--dangerously-skip-permissions`-style flag** to force it headless.
+- **Neither Antigravity nor OpenCode is a callee**, and in neither case is the
+  sandbox at fault. Antigravity's headless mode auto-denies even `read_file`;
+  OpenCode honours a hostile repo's remote MCP server (demonstrated live —
+  see the H2 blocker test). Both are written up in `DESIGN.md`.
 
-Tests: `node --test 'test/*.test.mjs'` → 40 pass, 6 skip (the skips are the
+Tests: `node --test 'test/*.test.mjs'` → 54 pass, 6 skip (the skips are the
 opt-in live/hostile-repo tests). Live + security gates:
 `AGENT_TALK_LIVE=1 node --test test/live.test.mjs test/h-series.test.mjs`
 (spends real subscription quota).
 
-## Your task: the relay-owned OS sandbox (phase 2)
+The sandbox has its own hermetic enforcement tests in `test/sandbox.test.mjs`:
+they run hostile commands under the generated profile and assert the kernel
+refuses them. Those exist because H-series alone cannot distinguish "the model
+politely declined" from "the kernel refused" — only one of those is a security
+property. If you touch the profile, that file is the gate.
+
+## Your task: pick up from the sandbox
+
+The OS sandbox below is **done and merged**; this section is kept as the record
+of what it was meant to achieve. The live next steps are:
+
+1. **Answer the Antigravity permission question** (DESIGN.md → "Open
+   decision"). It is a one-line `calleeEnabled` flip plus a live H1 run once
+   decided; the sandbox config for `agy` is already written and tested.
+2. **File the OpenCode upstream ask**: an ignore-project-config / trusted-folder
+   mode. That single flag would make `ask_opencode` shippable, since everything
+   else about it already passes under the sandbox.
+3. **Kimi Code CLI adapter** — needs a paid membership (Bryan's spend decision)
+   and its own H-probe under the sandbox.
+4. **Linux support for sandboxed callees** — today the relay refuses off macOS
+   rather than running unconfined. Needs a bwrap/Landlock profile *and* the
+   H-series run on real Linux; do not ship it on reasoning alone.
+
+## Original task description: the relay-owned OS sandbox (phase 2)
 
 **Goal.** Make *any* callee enforceably read-only from the relay's side, instead
 of depending on each CLI's own flags. This is the single unlock that lets

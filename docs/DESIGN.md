@@ -4,10 +4,10 @@ Diverged fork of [Frenemy](https://github.com/noblehacks) (Zakariya Syed, MIT). 
 scope: bidirectional Claude Code ↔ Codex relay on subscription auth. This fork broadens
 it to a mesh of agentic coding CLIs.
 
-**Status:** v1 core complete (2026-07-24). PRs #1–#8 merged and installed live
-on this machine. Working today: **Claude ↔ Codex both directions**, live-verified
-through the installed relay (Codex→Claude and Claude→Codex). Gemini and OpenCode
-are mounted as **hosts** (they can call Claude/Codex once logged in).
+**Status:** v1 core complete; phase-2 OS sandbox shipped (2026-07-24). Working
+today: **Claude ↔ Codex both directions**, live-verified. Antigravity and
+OpenCode are mounted as **hosts**; neither is a callee — the sandbox works, but
+each fails the gate for a CLI-specific reason recorded below.
 
 Shipped: docs foundation; relay registry refactor (byte-parity, tested);
 reconciling managed-marker installer; mesh core (codex callee, credential
@@ -25,21 +25,98 @@ interactive-approve; headless auto-approval needs a per-CLI skip flag we
 deliberately don't hardcode. The `gemini` adapter was replaced by `antigravity`
 (Bryan is moving off Gemini CLI).
 
-**Neither is a callee — concrete, verified blockers (not guesses):**
-- **OpenCode**: no built-in read-only agent (only `build`, which allows
-  everything) and a hostile repo's `opencode.json` overrides any permission
-  config we supply — read-only can't be enforced against an attacker. Needs an
-  upstream ignore-project-config/read-only-agent mechanism, or the relay-owned
-  OS sandbox (end-state below).
-- **Antigravity**: no JSON output (plain prose only), prompt is argv-only
-  (process-list exposure), and no per-invocation way to drop its global
-  `~/.gemini/config/mcp_config.json` (a callee `agy` would re-enter the mesh).
-Both would clear the bar under the phase-2 relay-owned OS sandbox; until then
-they stay host-only. `agy` symlinked into ~/.local/bin; Gemini CLI 0.52.0 still
-present but unused.
+**Update 2026-07-24 (phase 2): the relay-owned OS sandbox shipped. No new
+callee was unlocked by it, and that is the honest result.** The mechanism works
+and is tested; both candidate callees fail for reasons the sandbox cannot
+reach. Neither is a sandbox defect, and both are now precisely characterized
+rather than guessed at.
 
-Phase 2 (tracked, not scheduled): Kimi Code CLI adapter; relay-owned OS sandbox
-as the universal enforcement end-state (also the Kimi unlock).
+- **OpenCode — the sandbox holds, but it is not sufficient.** Under the profile
+  it runs, answers correctly (live read test, 2026-07-24), cannot write, and
+  cannot start the hostile fixture's *local* MCP server because no shell is
+  executable. **But OpenCode supports remote MCP servers**, and a hostile
+  repo's `opencode.json` is a later config layer than anything we supply. A
+  URL is not a process, so the exec allowlist is irrelevant to it.
+  **Demonstrated live 2026-07-24**: a sandboxed OpenCode completed a full MCP
+  `initialize` handshake against a local listener configured purely by the
+  repo. That defeats both "no MCP injection" and any exfiltration claim, so
+  `calleeEnabled` stays `false`. Encoded as a characterization test (H2
+  blocker) that will fail — deliberately — if upstream ever fixes it.
+  Both counters were tested and both fail: denying reads of the project config
+  makes OpenCode exit 1 (unreadable is fatal, not absent), and Seatbelt cannot
+  filter egress by hostname. **The upstream ask is an ignore-project-config
+  mode.**
+- **Antigravity — still host-only, new blocker.** The sandbox itself *works* on
+  `agy` (it authenticates and answers under the profile). The blocker is now
+  agy's own headless mode, which auto-denies every tool needing approval —
+  including `read_file` ("a tool required the read_file permission that
+  headless mode cannot prompt for, so it was auto-denied", live 2026-07-24). A
+  callee that cannot read the repo is useless. The only ways past are
+  `--dangerously-skip-permissions` (this repo deliberately does not hardcode
+  such flags) or writing allow-rules into the user's global
+  `~/.gemini/settings.json`, which would change their interactive agy too.
+  **Open question for Bryan — see "Open decision" below.** Its earlier
+  blockers stand and are unfixable by a sandbox: no JSON output, and an
+  argv-only prompt (process-list exposure).
+
+Phase 2 remaining (tracked, not scheduled): Kimi Code CLI adapter (needs a paid
+membership — Bryan's spend decision — plus its own H-probe under the sandbox).
+Note Kimi shares OpenCode's shape of problem (project config overrides, no
+settings isolation), so check the remote-MCP vector there before assuming the
+sandbox unlocks it.
+
+## The relay-owned OS sandbox (shipped 2026-07-24)
+
+Verified on macOS 26.5.2, opencode 1.16.2, agy 1.1.7. `sandbox-exec` is
+deprecated but present and functional [seen: `/usr/bin/sandbox-exec`].
+
+**What it enforces**, kernel-level, regardless of what the callee's config says.
+Proven by `test/sandbox.test.mjs`, which runs hostile commands under the real
+generated profile with no model in the loop:
+- **No file writes** outside the CLI's own state dirs and the temp dir. The
+  workspace is read-only.
+- **No process execution** outside a per-callee allowlist. No shell is on any
+  allowlist, and no JS runtime — so a callee cannot start a *local* MCP server
+  even when one is configured. Note the word local: this does nothing about a
+  **remote** MCP server, which is just a URL. That gap is what sank OpenCode.
+- **No reads** of a curated credential set (ssh/aws/gnupg, and the other
+  agents' OAuth stores).
+
+**What it deliberately does not enforce, stated plainly:**
+- **Outbound network is allowed.** These are cloud CLIs; with no network a
+  callee cannot answer at all. Seatbelt filters by address/port, never by
+  hostname, so "allow the vendor's API, deny everything else" is not
+  expressible. Containment is that only allowlisted binaries can open sockets.
+  Whatever the callee reads is still seen by its own provider — exactly as is
+  already true for Claude and Codex.
+- **The callee may write its own state dir** (session DB, logs, refreshed
+  tokens), because it cannot run otherwise. Its install directory and its own
+  MCP config are denied by rule; the config the relay hands it is regenerated
+  on every call, so an edit made by one run is never inherited by the next.
+
+**Platform:** macOS only. Linux (bwrap/Landlock) is NOT implemented: the relay
+*refuses* to run a sandboxed callee off macOS rather than silently running it
+unconfined. Shipping an untested Linux profile would mean making a security
+claim with no evidence behind it, which this repo's rules forbid.
+
+**Two findings worth remembering** (both cost real debugging time):
+- Seatbelt matches **realpath**. Homebrew's `rg` is a symlink into `../Cellar`;
+  allowlisting the symlink matches nothing, and the failure surfaces as the
+  callee *hanging*, not erroring. Every path in a profile is realpath-resolved.
+- A denied exec makes OpenCode fail obscurely ("Session not found") or hang
+  rather than report a permission error. It needs `rg` (glob/grep) and `git`
+  (session snapshots); the relay treats a missing helper as "callee
+  unavailable" instead of shipping something that stalls.
+
+## Open decision (for Bryan)
+
+**Antigravity as a callee** needs one of: (a) leave it host-only — costs
+nothing, keeps the rule against hardcoding skip-permissions flags intact;
+(b) pass `--dangerously-skip-permissions` *inside* the OS sandbox, arguing the
+kernel is the enforcement layer so the CLI's own permission prompts are
+redundant; (c) have the installer add read-only allow-rules to
+`~/.gemini/settings.json`, which also changes his interactive agy. Not decided
+unilaterally because (b) crosses a written rule and (c) edits user config.
 
 ## Settled decisions (Bryan, 2026-07-24)
 

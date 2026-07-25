@@ -64,6 +64,30 @@ test("A: claude host → real codex callee", { skip: !LIVE, timeout: 300000 }, a
   }
 });
 
+// Kept, skipped, as the record of a result that WAS obtained: on 2026-07-24
+// this passed live — a sandboxed OpenCode read LICENSE through the relay and
+// answered "MIT", proving the sandbox does not break reads. It is skipped
+// because ask_opencode is no longer offered: OpenCode failed the H2 gate on a
+// vector the sandbox cannot reach (project-supplied remote MCP). Re-enable it
+// together with `calleeEnabled` if that blocker is ever cleared upstream.
+test("A: claude host → real opencode callee still reads the repo", { skip: true, timeout: 300000 }, async () => {
+  const s = startServer(["--host", "claude"]);
+  try {
+    const r = await s.call("tools/call", {
+      name: "ask_opencode",
+      arguments: {
+        prompt:
+          "Read the LICENSE file in this repo and reply with exactly the name of the " +
+          "license it grants, and nothing else.",
+      },
+    });
+    assert.equal(r.result.isError, false, r.result.content?.[0]?.text);
+    assert.match(r.result.content[0].text, /MIT/i);
+  } finally {
+    s.stop();
+  }
+});
+
 test("A: codex host (default) → real claude callee", { skip: !LIVE, timeout: 300000 }, async () => {
   const s = startServer([]);
   try {
