@@ -281,6 +281,20 @@ if command -v agy >/dev/null; then
   # gives it a write tool.
   set_json_key "$HOME/.gemini/config/mcp_config.json" "mcpServers.agent_talk" \
     "{\"command\":\"$NODE_TOML\",\"args\":[\"$DIR_TOML/agent-talk-mcp.mjs\",\"--host\",\"antigravity\"]}"
+
+  # Installs predating the Gemini CLI -> Antigravity switch left a mount in
+  # ~/.gemini/settings.json pointing at `--host gemini`, a registry entry that
+  # no longer exists. agy reads mcp_config.json (above), so the stale one is
+  # inert rather than harmful — but it is confusing to find, and Gemini CLI
+  # would still load it. Warn; never delete someone's settings silently.
+  if [[ -f "$HOME/.gemini/settings.json" ]] \
+     && grep -q '"--host"' "$HOME/.gemini/settings.json" \
+     && grep -q '"gemini"' "$HOME/.gemini/settings.json"; then
+    echo "⚠️  Found a stale agent-talk mount in ~/.gemini/settings.json using"
+    echo "   --host gemini (from before the Antigravity switch). The live mount is"
+    echo "   ~/.gemini/config/mcp_config.json. Remove the mcpServers.agent_talk key"
+    echo "   from settings.json by hand; leave the rest of that file alone."
+  fi
 else
   note "antigravity (agy) not installed; skipping its mount. Re-run after installing it."
 fi
