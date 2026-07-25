@@ -273,15 +273,16 @@ else
   note "opencode not installed; skipping its mount. Re-run after installing it."
 fi
 
-if command -v gemini >/dev/null; then
+if command -v agy >/dev/null; then
   echo
-  echo "Gemini mount (~/.gemini/settings.json):"
-  # trust:true is per-server (Gemini's finest grain) and is exactly why this
-  # host is only ever offered read-only tools by the relay.
-  set_json_key "$HOME/.gemini/settings.json" "mcpServers.agent_talk" \
-    "{\"command\":\"$NODE_TOML\",\"args\":[\"$DIR_TOML/agent-talk-mcp.mjs\",\"--host\",\"gemini\"],\"timeout\":600000,\"trust\":true}"
+  echo "Antigravity mount (~/.gemini/config/mcp_config.json):"
+  # Antigravity CLI (`agy`), successor to Gemini CLI. Its MCP servers live in
+  # a dedicated mcp_config.json (per its own docs). Host-only: the relay never
+  # gives it a write tool.
+  set_json_key "$HOME/.gemini/config/mcp_config.json" "mcpServers.agent_talk" \
+    "{\"command\":\"$NODE_TOML\",\"args\":[\"$DIR_TOML/agent-talk-mcp.mjs\",\"--host\",\"antigravity\"]}"
 else
-  note "gemini not installed; skipping its mount. Re-run after installing it."
+  note "antigravity (agy) not installed; skipping its mount. Re-run after installing it."
 fi
 
 # --- 4. Optional image script --------------------------------

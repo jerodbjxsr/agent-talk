@@ -123,7 +123,7 @@ test("reconcile repairs edits inside the region and preserves everything outside
   }
 });
 
-test("host mounts: claude via mcp add, opencode and gemini via owned JSON keys", () => {
+test("host mounts: claude via mcp add, opencode and antigravity via owned JSON keys", () => {
   const home = freshHome();
   try {
     runInstaller({ home });
@@ -141,10 +141,11 @@ test("host mounts: claude via mcp add, opencode and gemini via owned JSON keys",
     assert.deepEqual(oc.mcp.agent_talk.command.slice(-2), ["--host", "opencode"]);
     assert.equal(oc.mcp.agent_talk.timeout, 600000);
 
-    // Gemini: per-server trust (why this host only ever gets read-only tools).
-    const gm = JSON.parse(readFileSync(join(home, ".gemini", "settings.json"), "utf8"));
-    assert.deepEqual(gm.mcpServers.agent_talk.args.slice(-2), ["--host", "gemini"]);
-    assert.equal(gm.mcpServers.agent_talk.trust, true);
+    // Antigravity: owned key in its dedicated mcp_config.json.
+    const ag = JSON.parse(
+      readFileSync(join(home, ".gemini", "config", "mcp_config.json"), "utf8")
+    );
+    assert.deepEqual(ag.mcpServers.agent_talk.args.slice(-2), ["--host", "antigravity"]);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -204,7 +205,7 @@ test("dry run does not touch claude mcp or create JSON configs", () => {
     assert.match(out, /would run: claude mcp add/);
     assert.equal(existsSync(join(home, ".claude-stub-mcp.log")), false);
     assert.equal(existsSync(join(home, ".config")), false);
-    assert.equal(existsSync(join(home, ".gemini")), false);
+    assert.equal(existsSync(join(home, ".gemini", "config")), false);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

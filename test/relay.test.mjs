@@ -257,8 +257,18 @@ test("default host (codex, no --host flag) sees the upstream tool surface, byte-
   }
 });
 
-test("gemini host gets read-only tools only (no per-tool approval granularity)", async () => {
-  const s = startServer({ args: ["--host", "gemini"] });
+test("antigravity host gets read-only tools only (no per-tool approval granularity)", async () => {
+  const s = startServer({ args: ["--host", "antigravity"] });
+  try {
+    const r = await s.call("tools/list");
+    assert.deepEqual(r.result.tools.map((t) => t.name), ["ask_claude", "ask_codex"]);
+  } finally {
+    s.stop();
+  }
+});
+
+test("opencode host gets read-only tools only (no write tool)", async () => {
+  const s = startServer({ args: ["--host", "opencode"] });
   try {
     const r = await s.call("tools/list");
     assert.deepEqual(r.result.tools.map((t) => t.name), ["ask_claude", "ask_codex"]);

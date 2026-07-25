@@ -21,22 +21,25 @@ The relay is one MCP server that each CLI mounts. A CLI that mounts it (a **host
 gets an `ask_<other>` tool for each agent that has passed the safety gate below (a
 **callee**). Calls are bidirectional: any host can reach any enabled callee.
 
-| From ↓ / To → | Claude | Codex | Gemini | OpenCode |
+| From ↓ / To → | Claude | Codex | Antigravity | OpenCode |
 |---|---|---|---|---|
 | **Claude** (host) | — | ✅ `ask_codex` | ⏳ | ⏳ |
 | **Codex** (host) | ✅ `ask_claude` | — | ⏳ | ⏳ |
-| **Gemini** (host) | ✅ `ask_claude` | ✅ `ask_codex` | — | ⏳ |
+| **Antigravity** (host) | ✅ `ask_claude` | ✅ `ask_codex` | — | ⏳ |
 | **OpenCode** (host) | ✅ `ask_claude` | ✅ `ask_codex` | — | ⏳ |
 
-✅ = usable now. ⏳ = Gemini and OpenCode are **hosts** today (they can call Claude
-and Codex), but are not yet **callees**: no one can call *them* until each passes
-the hostile-repo safety probe on a logged-in machine (see
-[Security](#security-what-is-locked-down)). This staging is deliberate — a callee is
-only offered once its read-only enforcement has passed that probe, never on a promise.
+✅ = usable now. ⏳ = Antigravity and OpenCode are **hosts** today (they can call
+Claude and Codex), but are not yet **callees**: no one can call *them* yet, because
+neither has a read-only mode that can be enforced against a hostile repo — the bar
+Claude and Codex both cleared (see [Security](#security-what-is-locked-down)). The
+specific blockers, per CLI, are recorded in `docs/DESIGN.md`. This staging is
+deliberate: a callee is only offered once its read-only enforcement is provable,
+never on a promise.
 
-**Excluded:** Qwen Code (its free login was discontinued; all remaining auth is
-API-key-shaped, and this project is subscription-only). Kimi Code CLI is a future
-candidate. Rationale for both is in `docs/research/cli-adapter-feasibility.md`.
+**Antigravity** is Google's `agy` CLI, the successor to Gemini CLI. **Excluded:**
+Qwen Code (its free login was discontinued; all remaining auth is API-key-shaped,
+and this project is subscription-only). Kimi Code CLI is a future candidate.
+Rationale is in `docs/research/cli-adapter-feasibility.md`.
 
 ## How to use it
 
