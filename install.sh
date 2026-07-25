@@ -286,8 +286,27 @@ else
 fi
 
 # --- 4. Optional image script --------------------------------
+# Whether the Antigravity image script can be offered at all: it runs agy under
+# a Seatbelt profile, so without sandbox-exec there is no containment story.
+AGY_IMG_OK=0
+if [[ "$(uname -s)" == "Darwin" && -x /usr/bin/sandbox-exec && -f "$DIR/genimg-agy.sh" ]]; then
+  AGY_IMG_OK=1
+fi
+
 if [[ -f "$HOME/.claude/scripts/genimg.sh" ]]; then
-  note "Image script already installed, skipping."
+  # Already have the Codex script. Don't re-prompt — but DO reconcile, or an
+  # existing install would never receive a script added in a later version.
+  if [[ "$AGY_IMG_OK" == 1 && ! -f "$HOME/.claude/scripts/genimg-agy.sh" ]]; then
+    if [[ "$DRY_RUN" == 1 ]]; then
+      note "(dry run: would add ~/.claude/scripts/genimg-agy.sh)"
+    else
+      cp "$DIR/genimg-agy.sh" "$HOME/.claude/scripts/genimg-agy.sh"
+      chmod +x "$HOME/.claude/scripts/genimg-agy.sh"
+      echo "✅ Added the Antigravity image script: ~/.claude/scripts/genimg-agy.sh"
+    fi
+  else
+    note "Image script already installed, skipping."
+  fi
 elif [[ "$DRY_RUN" == 1 ]]; then
   note "(dry run: skipping the optional image-script prompt)"
 else
@@ -299,6 +318,12 @@ else
     cp "$DIR/genimg.sh" "$HOME/.claude/scripts/genimg.sh"
     chmod +x "$HOME/.claude/scripts/genimg.sh"
     echo "✅ Image script installed to ~/.claude/scripts/genimg.sh"
+    # The Antigravity/Gemini sibling, where it can actually be enforced.
+    if [[ "$AGY_IMG_OK" == 1 ]]; then
+      cp "$DIR/genimg-agy.sh" "$HOME/.claude/scripts/genimg-agy.sh"
+      chmod +x "$HOME/.claude/scripts/genimg-agy.sh"
+      echo "✅ Antigravity image script installed to ~/.claude/scripts/genimg-agy.sh"
+    fi
   else
     note "Skipped the image script. Run this installer again if you change your mind."
   fi

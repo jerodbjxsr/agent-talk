@@ -179,6 +179,25 @@ Other properties:
 > normal Bash approval policy. Everything through the `ask_*` tools is; the Bash fallback
 > is not.
 
+### Image generation: two sources
+
+| Script | Model | Notes |
+|---|---|---|
+| `genimg.sh` | Codex / gpt-image-2 | Cross-platform. Prompt goes over **stdin**, so it never appears in the process list. Use this by default. |
+| `genimg-agy.sh` | Antigravity / Gemini | **macOS only** — it runs `agy` under the relay-owned Seatbelt profile, and refuses to run at all without `sandbox-exec`. Prompt is an **argv** positional (agy ignores stdin), so it *is* visible in the process list to other local users. |
+
+Both take `"<prompt>" /absolute/path/out.png` and print the output path.
+
+Two things about `agy` that the script exists to paper over, both verified live on
+1.1.7: its image tool ignores the path you give it and always saves into
+`~/.gemini/antigravity-cli/brain/<conversation-id>/`, and the tool result tells the
+model *not to reveal that path* — so the script finds the file by timestamp rather
+than believing the model. It also only ever emits JPEG, and converts to whatever
+extension you asked for so a `.png` really is a PNG.
+
+It uses `--mode accept-edits`, which approves file and tool operations but **not**
+`run_command`. `--dangerously-skip-permissions` is never used.
+
 <details>
 <summary><b>The critical Codex config line (the installer adds it for you)</b></summary>
 

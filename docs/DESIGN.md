@@ -108,15 +108,29 @@ claim with no evidence behind it, which this repo's rules forbid.
   (session snapshots); the relay treats a missing helper as "callee
   unavailable" instead of shipping something that stalls.
 
-## Open decision (for Bryan)
+## Decision 13 — Antigravity stays host-only (Bryan, 2026-07-24). SETTLED.
 
-**Antigravity as a callee** needs one of: (a) leave it host-only — costs
-nothing, keeps the rule against hardcoding skip-permissions flags intact;
-(b) pass `--dangerously-skip-permissions` *inside* the OS sandbox, arguing the
-kernel is the enforcement layer so the CLI's own permission prompts are
-redundant; (c) have the installer add read-only allow-rules to
-`~/.gemini/settings.json`, which also changes his interactive agy. Not decided
-unilaterally because (b) crosses a written rule and (c) edits user config.
+Ruled: leave `agy` host-only. Do **not** pass `--dangerously-skip-permissions`
+inside the sandbox, and do **not** have the installer write allow-rules into
+`~/.gemini/settings.json`. Closed — do not re-raise.
+
+What that costs, so nobody has to re-derive it:
+
+- **No Gemini-family model answers into the mesh.** The callee pool stays
+  Claude + Codex, so a "second opinion" is always one of those two. The
+  direction that matters most in practice — Claude → Antigravity — is exactly
+  the one that does not work.
+- **The loss is narrower than it looks:** `agy -p` answers fine from prompt
+  text (verified live). What it cannot do headless is *read the repo itself*.
+  So a Gemini opinion is still reachable by inlining the material into the
+  prompt via Bash (`agy -p "<question + pasted content>"`) — the caller brokers
+  the context instead of the callee fetching it. Costs: prompt goes in argv
+  (process-list exposure, ARG_MAX ceiling) and output is prose, not JSON.
+- **Unaffected:** Claude ↔ Codex both directions, and agy as a host calling
+  Claude/Codex (interactive-approve, which is fine in a session he is sitting in).
+
+Reopen only if Antigravity ships a headless mode with per-tool allow-rules that
+do not require a blanket skip flag.
 
 ## Settled decisions (Bryan, 2026-07-24)
 
