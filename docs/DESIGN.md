@@ -16,15 +16,27 @@ hostile-repo gate (H3 codex + H4 claude PASS live); mesh README (honesty-
 corrected against Codex review). 39 hermetic tests green; live A-series and
 H3/H4 green.
 
-**Remaining — all blocked on Bryan's interactive OAuth (can't be done headless):**
-1. `gemini` login (`gemini` → `/auth`, Google account) → run H1
-   (`AGENT_TALK_LIVE=1 node --test test/h-series.test.mjs`) → if it passes, flip
-   `gemini.calleeEnabled = true`.
-2. `opencode auth login` (ChatGPT or Copilot — **not** the Anthropic-sub path,
-   ToS-prohibited) → run H2 → flip `opencode.calleeEnabled = true`.
-Each is a ~5-line change (registry flag + the H test un-skipped) once its probe
-passes. Gemini CLI is installed (0.52.0, symlinked into ~/.local/bin); OpenCode
-is installed but has 0 credentials.
+**Update 2026-07-24 (later):** Bryan installed **Antigravity CLI (`agy` 1.1.7,
+Google's successor to Gemini CLI)** and authed it, and authed **OpenCode to
+OpenAI (OAuth)**. Both are now wired and verified as **hosts** — the relay's
+`ask_claude`/`ask_codex` tools load and are visible inside each (confirmed live:
+`agy -p` lists them; OpenCode `run` lists them). Completing a call is
+interactive-approve; headless auto-approval needs a per-CLI skip flag we
+deliberately don't hardcode. The `gemini` adapter was replaced by `antigravity`
+(Bryan is moving off Gemini CLI).
+
+**Neither is a callee — concrete, verified blockers (not guesses):**
+- **OpenCode**: no built-in read-only agent (only `build`, which allows
+  everything) and a hostile repo's `opencode.json` overrides any permission
+  config we supply — read-only can't be enforced against an attacker. Needs an
+  upstream ignore-project-config/read-only-agent mechanism, or the relay-owned
+  OS sandbox (end-state below).
+- **Antigravity**: no JSON output (plain prose only), prompt is argv-only
+  (process-list exposure), and no per-invocation way to drop its global
+  `~/.gemini/config/mcp_config.json` (a callee `agy` would re-enter the mesh).
+Both would clear the bar under the phase-2 relay-owned OS sandbox; until then
+they stay host-only. `agy` symlinked into ~/.local/bin; Gemini CLI 0.52.0 still
+present but unused.
 
 Phase 2 (tracked, not scheduled): Kimi Code CLI adapter; relay-owned OS sandbox
 as the universal enforcement end-state (also the Kimi unlock).

@@ -224,17 +224,29 @@ const AGENTS = {
     parse: (out, code, err) => parseNdjson(out, code, err, codexExtract),
     hostCaps: { perToolApproval: true },
   },
-  // Host-only for now: both load project config from the workspace, so their
-  // read-only story is unproven against a hostile repo (H1/H2 in the plan).
-  // They mount this server and call others; nobody calls them yet.
-  gemini: {
-    title: "Gemini",
-    short: "Gemini",
-    bin: resolveBin("gemini", "gemini.exe"),
+  // Host-only for now: each can mount this server and call Claude/Codex, but
+  // none is yet a callee — none has a read-only mode we can enforce against a
+  // hostile repo (docs/PLAN-v1.md, H-series). hostCaps.perToolApproval is
+  // false for all three: their MCP trust is server-wide, so the relay never
+  // offers them a write tool.
+  antigravity: {
+    // Antigravity CLI (`agy`), successor to Google's Gemini CLI; subscription
+    // OAuth (Gemini models). Callee blockers, all verified 2026-07-24 on
+    // agy 1.1.7: no JSON output mode (plain prose only), prompt is an argv
+    // positional not stdin (process-list exposure), and no per-invocation way
+    // to drop its global ~/.gemini/config/mcp_config.json (a callee agy would
+    // re-enter the mesh). Host works today.
+    title: "Antigravity",
+    short: "Antigravity",
+    bin: resolveBin("agy", "agy.exe"),
     calleeEnabled: false,
-    hostCaps: { perToolApproval: false }, // MCP trust is per-server only
+    hostCaps: { perToolApproval: false },
   },
   opencode: {
+    // Callee blocker (verified 2026-07-24 on opencode 1.16.2): no built-in
+    // read-only agent (only `build`, which allows everything), and a hostile
+    // repo's opencode.json overrides any permission config we supply — so
+    // read-only can't be enforced against an attacker. Host works today.
     title: "OpenCode",
     short: "OpenCode",
     bin: resolveBin("opencode", "opencode.exe"),
